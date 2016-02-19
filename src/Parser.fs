@@ -29,26 +29,23 @@ module Parser =
         | x::xs -> Or (x, lazy(orOf xs))
         | [] -> raise (new System.InvalidOperationException ())
 
-    let rec eval p l =
-        match p, l with
-        | Done v, xs -> Success v, xs
-        | End v, [] -> Success v, []
-        | Pick cf, x::xs ->
-            match cf x with
-            | Some v -> eval v xs
-            | None -> Error (p, l), l
-        | Or (p1, p2), l ->
-            match eval p1.Value l with
-            | Error (e1,r1), _ ->
-                match eval p2.Value l with
-                | Error (e2, r2), _ ->
-                    if List.length r2 < List.length r1 then
-                        Error (e2,r2), l
-                    else
-                        Error (e1, r1), l
-                | Success v, xs -> Success v, xs
-            | Success v, xs -> Success v, xs
-        | p, xs -> Error (p, xs), l
+    let eval p l =
+        let rec evalStack p l stack =
+            let inline fail (stack : Parser<_,_> Lazy list) p xs l =
+                match stack with
+                    | [] -> Error (p, xs), l
+                    | cont::nfails -> evalStack cont.Value l nfails
+            match p, l with
+            | Done v, xs -> Success v, xs
+            | End v, [] -> Success v, []
+            | Pick cf, x::xs ->
+                match cf x with
+                | Some v -> evalStack v xs stack
+                | None -> fail stack p l l
+            | Or (p1, p2), l ->
+                evalStack p1.Value l (p2::stack)
+            | p, xs -> fail stack p xs l
+        evalStack p l []
         
     let filter cf f = Pick (fun c -> if cf c then Some (f c) else None)
 
@@ -65,7 +62,7 @@ module Parser =
         
     let rec eat a b =
         Or ( lazy (filter a (fun _ -> eat a b)),
-             lazy (b) )
+             Lazy.CreateFromValue b )
         
     let eatWs b = eat System.Char.IsWhiteSpace b
 
@@ -77,4 +74,4 @@ module Operators =
     let ( *> ) a b = a >>= fun _ -> b
     let (<*>) a b = Parser.map a b // <$>
     let (<|>) a b = Or (a, b)
-    let (<~>) a b = Or (lazy (a), lazy (b))
+    let (<~>) a b = Or (Lazy.CreateFromValue a, Lazy.CreateFromValue b)
