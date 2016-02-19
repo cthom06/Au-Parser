@@ -4,7 +4,7 @@ type Parser<'char, 'a> =
     | Done of 'a
     | End of 'a
     | Pick of ('char -> Parser<'char, 'a> option)
-    | Or of Parser<'char, 'a> Lazy * Parser<'char, 'a> Lazy
+    | Or of Parser<'char, 'a> * Parser<'char, 'a> Lazy
 
 module Parser =
     type Error<'char,'a> = | Success of 'a | Error of (Parser<'char,'a> * 'char list)
@@ -14,24 +14,24 @@ module Parser =
         | Done a
         | End a -> f a
         | Pick g -> Pick (g >> Option.map (fun ng -> bind ng f))
-        | Or (g, h) -> Or (lazy (bind g.Value f), lazy (bind h.Value f))
+        | Or (g, h) -> Or (bind g f, lazy (bind h.Value f))
 
     let rec map p f =
         match p with
         | Done a -> Done (f a)
         | End a -> End (f a)
         | Pick g -> Pick (g >> Option.map (fun ng -> map ng f))
-        | Or (g, h) -> Or (lazy (map g.Value f), lazy (map h.Value f))
+        | Or (g, h) -> Or (map g f, lazy (map h.Value f))
 
-    let rec orOf steps =
+    let rec orOf (steps : _ Lazy list) =
         match steps with
-        | a::b::[] -> Or (a, b)
-        | x::xs -> Or (x, lazy(orOf xs))
+        | a::b::[] -> Or (a.Value, b)
+        | x::xs -> Or (x.Value, lazy(orOf xs))
         | [] -> raise (new System.InvalidOperationException ())
 
     let eval p l =
         let rec evalStack p l stack =
-            let inline fail (stack : Parser<_,_> Lazy list) p xs l =
+            let inline fail (stack : _ Lazy list) p xs l =
                 match stack with
                     | [] -> Error (p, xs), l
                     | cont::nfails -> evalStack cont.Value l nfails
@@ -43,7 +43,7 @@ module Parser =
                 | Some v -> evalStack v xs stack
                 | None -> fail stack p l l
             | Or (p1, p2), l ->
-                evalStack p1.Value l (p2::stack)
+                evalStack p1 l (p2::stack)
             | p, xs -> fail stack p xs l
         evalStack p l []
         
@@ -56,12 +56,12 @@ module Parser =
         
     let repeat p =
         let rec inner d =
-            Or ( lazy(bind p (fun v -> inner (v::d))),
+            Or ( bind p (fun v -> inner (v::d)),
                  lazy(Done (List.rev d)))
         inner []
         
     let rec eat a b =
-        Or ( lazy (filter a (fun _ -> eat a b)),
+        Or ( filter a (fun _ -> eat a b),
              Lazy.CreateFromValue b )
         
     let eatWs b = eat System.Char.IsWhiteSpace b
@@ -74,4 +74,4 @@ module Operators =
     let ( *> ) a b = a >>= fun _ -> b
     let (<*>) a b = Parser.map a b // <$>
     let (<|>) a b = Or (a, b)
-    let (<~>) a b = Or (Lazy.CreateFromValue a, Lazy.CreateFromValue b)
+    let (<~>) a b = Or (a, Lazy.CreateFromValue b)
