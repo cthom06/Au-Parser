@@ -12,7 +12,7 @@ module Parser =
         match p with
         | Done a -> f a
         | Pick g -> Pick (g >> Option.map (fun ng -> bind ng f))
-        | Or (g, h) -> Or (bind g f, lazy(bind h.Value f))
+        | Or (g, h) -> Or (bind g f, lazy (bind h.Value f))
 
     let rec map p f =
         match p with
@@ -20,15 +20,9 @@ module Parser =
         | Pick g -> Pick (g >> Option.map (fun ng -> map ng f))
         | Or (g, h) -> Or (map g f, lazy (map h.Value f))
 
-    let rec orOf (steps : _ Lazy list) =
-        match steps with
-        | a::b::[] -> Or (a.Value, b)
-        | x::xs -> Or (x.Value, lazy (orOf xs))
-        | [] -> raise (new System.InvalidOperationException ())
-
     let eval p l =
         let rec evalStack p l stack =
-            let inline fail (stack : _  Lazy list) p xs l =
+            let inline fail (stack : _ Lazy list) p xs l =
                 match stack with
                     | [] -> Error (p, xs), l
                     | cont::nfails -> evalStack cont.Value l nfails
@@ -45,31 +39,31 @@ module Parser =
             | Or (p1, p2), l ->
                 evalStack p1 l (p2::stack)
         evalStack p l []
-        
+
     let filter cf f = Pick (Option.bind (fun c -> if cf c then Some (f c) else None))
 
     let exactly c v = filter ((=) c) (fun _ -> v)
 
     let sequence s v =
-        bind (Seq.fold (fun d c -> bind d  (fun _ -> exactly c (Done ()))) (Done ()) s) (fun _ -> Done v)
+        bind (Seq.fold (fun d c -> bind d (fun _ -> exactly c (Done ()))) (Done ()) s) (fun _ -> Done v)
 
     let repeat p =
         let rec inner d =
             Or ( bind p (fun v -> inner (v::d)),
                      lazy (Done (List.rev d)))
         inner []
-        
-    let rec eat p =
-        Or ( bind p (fun _ -> p),
-             Lazy.CreateFromValue (Done ()) )
-        
-    let eatWs = eat (filter System.Char.IsWhiteSpace (fun _ -> Done ()))
+
+    let rec eatWhite =
+        Pick (fun mc ->
+            match mc with
+            | Some c when System.Char.IsWhiteSpace c -> Some eatWhite
+            | _ -> Some (Done ()))
 
     let range r f = filter (fun c -> List.exists ((=) c) r) f
     let except r f = filter (fun c -> not <| List.exists ((=) c) r) f
 
     let endData v = Pick (fun c -> match c with | None -> Some (Done v) | _ -> None)
-        
+
 module Operators =
     let (>>=) a b = Parser.bind a b
     let ( *> ) a b = a >>= fun _ -> b
