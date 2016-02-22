@@ -22,10 +22,10 @@ module Parser =
 
     let eval p l =
         let rec evalStack p l stack =
-            let inline fail (stack : _ Lazy list) p xs l =
+            let inline fail (stack : (_ * _ Lazy) list) p xs l =
                 match stack with
                     | [] -> Error (p, xs), l
-                    | cont::nfails -> evalStack cont.Value l nfails
+                    | (cl,cont)::nfails -> evalStack cont.Value cl nfails
             match p, l with
             | Done v, xs -> Success v, xs
             | Pick cf, [] ->
@@ -37,7 +37,7 @@ module Parser =
                 | Some v -> evalStack v xs stack
                 | None -> fail stack p l l
             | Or (p1, p2), l ->
-                evalStack p1 l (p2::stack)
+                evalStack p1 l ((l,p2)::stack)
         evalStack p l []
 
     let filter cf f = Pick (Option.bind (fun c -> if cf c then Some (f c) else None))
@@ -50,14 +50,15 @@ module Parser =
     let repeat p =
         let rec inner d =
             Or ( bind p (fun v -> inner (v::d)),
-                     lazy (Done (List.rev d)))
+                 lazy (Done (List.rev d)))
         inner []
 
     let rec eatWhite =
-        Pick (fun mc ->
-            match mc with
-            | Some c when System.Char.IsWhiteSpace c -> Some eatWhite
-            | _ -> Some (Done ()))
+        Or (Pick (fun mc ->
+                match mc with
+                | Some c when System.Char.IsWhiteSpace c -> Some eatWhite
+                | _ -> None),
+            lazy (Done ()))
 
     let range r f = filter (fun c -> List.exists ((=) c) r) f
     let except r f = filter (fun c -> not <| List.exists ((=) c) r) f
