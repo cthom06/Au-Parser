@@ -44,7 +44,7 @@ module Parser =
 
     let exactly c = filter ((=) c) Done
 
-    let sequence s = Seq.fold (fun d c -> bind d (fun _ -> exactly c)) (Done ()) s
+    let sequence s = Seq.fold (fun d c -> bind d (fun _ -> map (exactly c) ignore)) (Done ()) s
 
     let repeat p =
         let rec inner d =
