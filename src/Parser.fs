@@ -42,10 +42,9 @@ module Parser =
 
     let filter cf f = Pick (Option.bind (fun c -> if cf c then Some (f c) else None))
 
-    let exactly c v = filter ((=) c) (fun _ -> v)
+    let exactly c = filter ((=) c) Done
 
-    let sequence s v =
-        bind (Seq.fold (fun d c -> bind d (fun _ -> exactly c (Done ()))) (Done ()) s) (fun _ -> Done v)
+    let sequence s = Seq.fold (fun d c -> bind d (fun _ -> exactly c)) (Done ()) s
 
     let repeat p =
         let rec inner d =
@@ -60,10 +59,12 @@ module Parser =
                 | _ -> None),
             lazy (Done ()))
 
-    let range r f = filter (fun c -> List.exists ((=) c) r) f
-    let except r f = filter (fun c -> not <| List.exists ((=) c) r) f
+    let range r = filter (fun c -> List.exists ((=) c) r) Done
+    let except r = filter (fun c -> not <| List.exists ((=) c) r) Done
 
-    let endData v = Pick (fun c -> match c with | None -> Some (Done v) | _ -> None)
+    let endData = Pick (fun c -> match c with | None -> Some (Done ()) | _ -> None)
+
+    let through a b = bind a (fun v -> bind b (fun _ -> Done v))
 
 module Operators =
     let (>>=) a b = Parser.bind a b
