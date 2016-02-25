@@ -2,8 +2,9 @@
 
 type Parser<'char, 'a> =
     | Done of 'a
+    | Delay of (unit -> Parser<'char, 'a>)
     | Pick of ('char option -> Parser<'char, 'a> option)
-    | Or of Parser<'char, 'a> * Parser<'char, 'a> Lazy
+    | Or of Parser<'char, 'a> * Parser<'char, 'a>
 
 module Parser =
     type Error<'char,'a> = | Success of 'a | Error of (Parser<'char,'a> * 'char list)
@@ -11,23 +12,26 @@ module Parser =
     let rec bind p f =
         match p with
         | Done a -> f a
+        | Delay ua -> Delay (fun () -> bind (ua ()) f)
         | Pick g -> Pick (g >> Option.map (fun ng -> bind ng f))
-        | Or (g, h) -> Or (bind g f, lazy (bind h.Value f))
+        | Or (g, h) -> Or (bind g f, bind h f)
 
     let rec map p f =
         match p with
         | Done a -> Done (f a)
+        | Delay ua -> Delay (fun () -> map (ua ()) f)
         | Pick g -> Pick (g >> Option.map (fun ng -> map ng f))
-        | Or (g, h) -> Or (map g f, lazy (map h.Value f))
+        | Or (g, h) -> Or (map g f, map h f)
 
     let eval p l =
         let rec evalStack p l stack =
-            let inline fail (stack : (_ * _ Lazy) list) p xs l =
+            let inline fail stack p xs l =
                 match stack with
                     | [] -> Error (p, xs), l
-                    | (cl,cont)::nfails -> evalStack cont.Value cl nfails
+                    | (cl,cont)::nfails -> evalStack cont cl nfails
             match p, l with
             | Done v, xs -> Success v, xs
+            | Delay up, xs -> evalStack (up ()) xs stack
             | Pick cf, [] ->
                 match cf None with
                 | Some v -> evalStack v [] stack
@@ -49,7 +53,7 @@ module Parser =
     let repeat p =
         let rec inner d =
             Or ( bind p (fun v -> inner (v::d)),
-                 lazy (Done (List.rev d)))
+                 Delay (fun () -> Done (List.rev d)))
         inner []
 
     let rec eatWhite =
@@ -57,7 +61,7 @@ module Parser =
                 match mc with
                 | Some c when System.Char.IsWhiteSpace c -> Some eatWhite
                 | _ -> None),
-            lazy (Done ()))
+            Done ())
 
     let range r = filter (fun c -> List.exists ((=) c) r) Done
     let except r = filter (fun c -> not <| List.exists ((=) c) r) Done
@@ -70,5 +74,4 @@ module Operators =
     let (>>=) a b = Parser.bind a b
     let ( *> ) a b = a >>= fun _ -> b
     let (<*>) a b = Parser.map a b // <$>
-    let (<~>) a b = Or (a, b)
-    let (<|>) a b = Or (a, Lazy.CreateFromValue b)
+    let (<|>) a b = Or (a, b)
